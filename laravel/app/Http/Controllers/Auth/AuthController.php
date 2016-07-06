@@ -1,66 +1,94 @@
-<?php namespace App\Http\Controllers\Auth;
+<?php
+
+namespace App\Http\Controllers\Auth;
 
 use DB;
 
+use Hash;
+
+use App\Tagg;
+
+use URL;
+use Redirect;
+use Auth;
+use Illuminate\Support\Facades\Mail;
 use App\User;
-
-use App\Http\Requests;
-
+use Validator;
+use Illuminate\Http\Request;
 use App\Http\Controllers\Controller;
-use Illuminate\Contracts\Auth\Guard;
-use Illuminate\Contracts\Auth\Registrar;
+use Illuminate\Foundation\Auth\ThrottlesLogins;
 use Illuminate\Foundation\Auth\AuthenticatesAndRegistersUsers;
 
 class AuthController extends Controller {
+    /*
+    |--------------------------------------------------------------------------
+    | Registration & Login Controller
+    |--------------------------------------------------------------------------
+    |
+    | This controller handles the registration of new users, as well as the
+    | authentication of existing users. By default, this controller uses
+    | a simple trait to add these behaviors. Why don't you explore it?
+    |
+    */
 
-	/*
-	|--------------------------------------------------------------------------
-	| Registration & Login Controller
-	|--------------------------------------------------------------------------
-	|
-	| This controller handles the registration of new users, as well as the
-	| authentication of existing users. By default, this controller uses
-	| a simple trait to add these behaviors. Why don't you explore it?
-	|
-	*/
+    use AuthenticatesAndRegistersUsers, ThrottlesLogins;
 
-	use AuthenticatesAndRegistersUsers;
+    /**
+     * Create a new authentication controller instance.
+     *
+     * @return void
+     */
+    public function __construct()
+    {
+        $this->middleware('guest', ['except' => 'logOut']);
+    }
 
-	/**
-	 * Create a new authentication controller instance.
-	 *
-	 * @param  \Illuminate\Contracts\Auth\Guard  $auth
-	 * @param  \Illuminate\Contracts\Auth\Registrar  $registrar
-	 * @return void
-	 */
-	public function __construct(Guard $auth, Registrar $registrar)
-	{
-		$this->auth = $auth;
-		$this->registrar = $registrar;
+    
 
-		$this->middleware('guest', ['except' => 'getLogout']);
-	}
+    //for the log in redirect to the route bellow.
+    protected $loginPath = 'account/signIn';
 
 
-	/*
-	* get the form and submit users' details.
-	*/
-	public function createAccount(){
+    //routes.
+    public function getIndex(){
 
-		$title = 'Create Account.';
+        $title = 'Home.';
 
-		return View('accounts.createAccount')
+        return View('accounts.index')
         ->with('title', $title);
-	}
+    }
 
-	public function submitAccount(){
+    //create users' account.
+    public function createAccount(){
 
-		//in here we are passing in the data gathered from the form
+        $title = 'Create Account.';
+
+        return View('accounts.createAccount')
+        ->with('title', $title);
+    }
+
+    //sign in users'
+    public function signIn(){
+
+        $title = 'Sign In.';
+
+        return View('accounts.signIn')
+        ->with('title', $title);
+    }
+    
+    //register user and send mail to account.
+    public function storeAccount(Request $request){
+
+        //in here we are passing in the data gathered from the form
         //using the post method.
         $this->validate($request,[
-            'name'     => 'required',
-            'username' => 'required|min:6|max:50',
-            'password' => 'required|min:8',
+            'firstname'       => 'required',
+            'lastname'        => 'required',
+            'badgeNumber'     => 'required|min:10|max:10',
+            'emailAddress'    => 'required|email|max:50|unique:users',
+            'username'        => 'required|min:6|max:50',
+            'password'        => 'required|min:8',
+            'confirmPassword' => 'required|same:password|min:8',
         ]);
 
         //throw errors if field are not validated properly.
@@ -73,106 +101,126 @@ class AuthController extends Controller {
         else{
 
             //get all our inputs.
-            $name     = $request->get('name');
-            $username = $request->get('username');
-            $password = $request->get('password');
+            $firstname     = $request->get('firstname');
+            $lastname      = $request->get('lastname');
+            $badgeNumber   = $request->get('badgeNumber');
+            $emailAddress  = $request->get('emailAddress');
+            $username      = $request->get('username');
+            $password      = $request->get('password');
             
 
             //lets generate a random 60 length character code.
-            //$code = str_random(60);
+            $code = str_random(60);
 
             $data = User::create([
-                'name'     => $name,
-                'username' => $username,
-                'password' => hash::make($password)
+                'firstname'      => $firstname,
+                'lastname'       => $lastname,
+                'badgeNumber'    => $badgeNumber,
+                'emailAddress'   => $emailAddress,
+                'username'       => $username,
+                'password'       => hash::make($password),
+                'role'           => 0,
+                'active'         => 0,
+                'code'           => $code,
             ]);
 
-            //re direct accordingly.
-            return Redirect::route('createAccount')
-            ->with('global', '<p style="font:16px book antiqua; width:410px; margin-top:90px; text-align:center" class="alert alert-info alert-dismissible pull-right" role="alert">' . 'Account Created.' . '<button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button>' . '</p>');
-	
+            //automatically create categories profiles..
+
+            //we need to create a mail functionallity so as to send the user a link to the sign in page.
+            if ($data) {
+                # code...
+                Mail::send('mail.activate', ['link'=> URL::route('activateAccount', $code), 'username'=> $username], function($message) use ($data) {
+                    $message-> to($data->emailAddress, $data->username) ->subject('Activate your Account.');       
+                });
+
+                //re direct accordingly.
+                return Redirect::route('home')
+                ->with('global', '<p style="font:16px book antiqua; width:410px; margin-top:90px; text-align:center" class="alert alert-info alert-dismissible pull-right" role="alert">' . 'Profile Created' . '<button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button>' . '</p>');
+            }
+
+            //just incase.
+            return Redirect::route('account-signIn')
+            ->with('global', '<p style="font:16px arial; width:410px; margin-top:90px; text-align:center" class="alert alert-danger alert-dismissible pull-right" role="alert">' . 'Your Profile has not been created.' . '<button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button>' . '</p>');
         }
-	}
 
-	//handle cases.
-	public function createCases(){
+    }  
 
-		$title = 'Case.';
+    //activate the account/profile.
+    public function activateAccount($code){
 
-		return View('accounts.cases')
-		->with('title', $title);
-	}
+        $data = User::where('code','=',$code)-> where('active','=',0);
 
-	//store cases.
-	public function submitCases(){
+        if ($data-> count()) {
+            # code...
+            $data = $data-> first();
 
-		//in here we are passing in the data gathered from the form
-        //using the post method.
+            $data ->code   ='';
+            $data ->active = 1;
+
+            if ($data-> save()) {
+                # code...
+                //we reroute our user to the sign in route.
+                return Redirect::route('signIn')
+                -> with('global', '<p style="font:16px arial; width:410px; margin-top:90px; text-align:center" class="alert alert-info alert-dismissible pull-right" role="alert">' . 'Your account has been Activated.Sign in.' . '<button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button>' . '</p>');
+            }
+        }
+
+        //error message incase the above was unsuccessful.
+        return Redirect::route('home')
+                -> with('global', '<p style="font:16px arial; width:470px; margin-top:90px; text-align:center" class="alert alert-danger alert-dismissible pull-right" role="alert">' . 'We couldn\'t for some reason activate your account.' . '<button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button>' . '</p>');
+    }
+
+    //sign in.
+    public function postSignIn(Request $request){
+
         $this->validate($request,[
-            'names'    => 'required',
-            'idNumber' => 'required',
-            'case'     => 'required',
-            'station'  => 'required',
+            'emailAddress'    => 'required|email',
+            'password'        => 'required|min:8',
         ]);
 
         //throw errors if field are not validated properly.
         if ($request->fails) {
             # code...
-            return Redirect::route('createCases')
+            return Redirect::route('signIn')
             ->withInput()
             ->withErrors($request);
         }
+
+        //login the user.
+        if (!Auth::attempt($request->only(['emailAddress', 'password']))) {
+            # code...
+            return Redirect::route('signIn')
+            -> with('global', '<p style="font:16px arial; width:470px; margin-top:90px; text-align:center" class="alert alert-danger alert-dismissible pull-right" role="alert">' . 'Ensure you\'ve provided correct Email and or Password' . '<button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button>' . '</p>');               
+        }
         else{
 
-            //get all our inputs.
-            $names    = $request->get('names');
-            $idNumber = $request->get('idNumber');
-            $case     = $request->get('case');
-            $station  = $request->get('station');
+            $test = Auth::user()->username;
 
-            $data = User::create([
-                'names'   => $names,
-                'idNumber'=> $idNumber,
-                'case'    => $case,
-                'station' => $station
-            ]);
+            $active = Auth::user()->active;
 
-            //re direct accordingly.
-            return Redirect::route('createCases')
-            ->with('global', '<p style="font:16px book antiqua; width:410px; margin-top:90px; text-align:center" class="alert alert-info alert-dismissible pull-right" role="alert">' . 'Case Created.' . '<button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button>' . '</p>');
-		}
+            $role = Auth::user()->role;
 
-		//re direct accordingly.
-            return Redirect::route('createCases')
-            ->with('global', '<p style="font:16px book antiqua; width:410px; margin-top:90px; text-align:center" class="alert alert-danger alert-dismissible pull-right" role="alert">' . 'No Cases Created.' . '<button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button>' . '</p>');
-	}
+            if ($role == 1) {
+                # code...
+                return Redirect::to('admin/dashboard')
+                -> with('global', '<p style="font:16px arial; width:470px; margin-top:80px; text-align:center" class="alert alert-success alert-dismissible pull-right" role="alert">' . 'Welcome Admin.' . '<button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button>' . '</p>');
+            }
+            elseif ($role == 0) {
+                # code...
+                return Redirect::to('profile/'. Auth::user()->id)
+                -> with('global', '<p style="font:16px arial; width:470px; margin-top:90px; text-align:center" class="alert alert-success alert-dismissible pull-right" role="alert">' . 'You are now logged in.' . '<button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button>' . '</p>');
+            }           
+        }
+    }
 
+    //log the user out.
+    public function logOut(){
 
-	/*
-	* fetch data from users' table
-	*/
-	public function fetchData(){
+        //log out this user.
+        auth()->logout();
 
-		//get all the users'
-        $user = DB::table('users')->get();
-
-        //admin dashboard.
-        $title = 'Fetch.';
-
-        return View('accounts.fetchData', compact('user'))
-        ->with('title', $title);
-	}
-
-	//fetch cases.
-	public function fetchCases(){
-
-		//get all the users'
-        $user = DB::table('cases')->get();
-
-        //admin dashboard.
-        $title = 'Fetch Cases.';
-
-        return View('accounts.fetchCases', compact('user'))
-        ->with('title', $title);
-	}
+        //redirect accordingly.
+        return Redirect::to('account/signIn')
+        -> with('global', '<p style="font:16px arial; width:470px; margin-top:90px; text-align:center" class="alert alert-info alert-dismissible pull-right" role="alert">' . 'You are now logged out.' . '<button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button>' . '</p>');
+    }
 }
